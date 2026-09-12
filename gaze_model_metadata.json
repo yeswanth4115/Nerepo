@@ -1,0 +1,59 @@
+{
+  "feature_version": "v3_eye_center",
+  "feature_names": [
+    "left_center_x",
+    "left_center_y",
+    "right_center_x",
+    "right_center_y"
+  ],
+  "use_head_pose": false,
+  "model_type": "ridge_quadratic",
+  "cv_mean_error_px": 92.1790557173368,
+  "cv_median_error_px": 85.35710345614987,
+  "cv_worst_error_px": 265.91368709761423,
+  "cv_corrected_mean_error_px": 92.83481682777918,
+  "cv_all_models": {
+    "ridge_linear": {
+      "mean_px": 94.56704609971882,
+      "median_px": 87.72124767809566,
+      "worst_px": 226.70891622945175
+    },
+    "ridge_quadratic": {
+      "mean_px": 92.1790557173368,
+      "median_px": 85.35710345614987,
+      "worst_px": 265.91368709761423,
+      "corrected_mean_px": 92.83481682777918,
+      "corrected_median_px": 81.71903753271422
+    },
+    "svr_rbf": {
+      "mean_px": 262.01679201424514,
+      "median_px": 198.5948538601945,
+      "worst_px": 612.6230965428681
+    },
+    "kernel_ridge_rbf": {
+      "mean_px": 590.4962801907437,
+      "median_px": 489.07163764366067,
+      "worst_px": 1655.8742155815364
+    }
+  },
+  "affine_correction": [
+    [
+      0.995582519218555,
+      -0.0020960074937875313
+    ],
+    [
+      0.006449384190768112,
+      1.018669545351527
+    ],
+    [
+      1.5616563962178471,
+      -5.71233339603366
+    ]
+  ],
+  "screen_width": 1536,
+  "screen_height": 864,
+  "n_calibration_points": 25,
+  "n_accepted_points": 25,
+  "n_raw_frames": 1874,
+  "calibration_method": "robust_median_per_point"
+}
