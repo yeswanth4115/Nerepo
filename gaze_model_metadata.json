@@ -1,0 +1,36 @@
+{
+    "feature_version": "v5_eye_features_4",
+    "feature_names": [
+        "left_h",
+        "left_v",
+        "right_h",
+        "right_v"
+    ],
+    "feature_count": 4,
+    "use_head_pose": false,
+    "model_type": "ridge_polynomial",
+    "cv_mean_error_px": 368.592183906184,
+    "cv_median_error_px": 308.08488257552267,
+    "cv_worst_error_px": 1654.1358449140725,
+    "cv_all_models_px": {
+        "ridge_linear": {
+            "mean": 374.9747715436518,
+            "median": 350.65196439407237,
+            "worst": 1258.4968906354156
+        },
+        "ridge_polynomial": {
+            "mean": 368.592183906184,
+            "median": 308.08488257552267,
+            "worst": 1654.1358449140725
+        },
+        "svr_rbf": {
+            "mean": 395.7000148059725,
+            "median": 340.25803268775536,
+            "worst": 1114.3042266338814
+        }
+    },
+    "screen_width": 1536,
+    "screen_height": 864,
+    "n_calibration_points": 25,
+    "n_samples": 1900
+}
