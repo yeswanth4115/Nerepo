@@ -13,6 +13,7 @@ from mediapipe.tasks.python import vision
 
 from sklearn.base import clone
 from sklearn.linear_model import Ridge
+from sklearn.kernel_ridge import KernelRidge
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import (
@@ -30,7 +31,7 @@ from gaze_features import (
 
 
 GRID_ROWS = 5
-GRID_COLS = 5
+GRID_COLS = 10
 
 MARGIN_X = 100
 MARGIN_Y = 80
@@ -39,6 +40,7 @@ SETTLE_TIME = 1.5
 COLLECT_TIME = 3.0
 
 MIN_SAMPLES_PER_POINT = 20
+SAMPLES_PER_POINT = 45
 MAD_THRESHOLD = 3.5
 
 USE_HEAD_POSE = False
@@ -390,12 +392,15 @@ try:
             )
             continue
 
-        for sample in accepted:
-            features_all.append(sample)
-            targets_all.append(
-                [target_x, target_y]
-            )
-            groups_all.append(point_index)
+        # Use one robust feature vector per target. This prevents many
+        # adjacent frames from letting the model memorize camera noise.
+        point_feature = np.median(
+            accepted[-SAMPLES_PER_POINT:],
+            axis=0,
+        )
+        features_all.append(point_feature)
+        targets_all.append([target_x, target_y])
+        groups_all.append(point_index)
 
         print(
             f"Accepted {len(accepted)}/"
@@ -453,7 +458,7 @@ if features_all.shape[1] != expected_features:
 models = {
     "ridge_linear": make_pipeline(
         StandardScaler(),
-        Ridge(alpha=2.0),
+        Ridge(alpha=0.5),
     ),
 
     "ridge_polynomial": make_pipeline(
@@ -462,7 +467,7 @@ models = {
             include_bias=False,
         ),
         StandardScaler(),
-        Ridge(alpha=5.0),
+        Ridge(alpha=1.0),
     ),
 
     "svr_rbf": make_pipeline(
@@ -470,9 +475,18 @@ models = {
         MultiOutputRegressor(
             SVR(
                 kernel="rbf",
-                C=30.0,
-                epsilon=8.0,
+                C=100.0,
+                epsilon=0.01,
             )
+        ),
+    ),
+
+    "kernel_ridge_rbf": make_pipeline(
+        StandardScaler(),
+        KernelRidge(
+            kernel="rbf",
+            alpha=0.1,
+            gamma=2.0,
         ),
     ),
 }
@@ -513,6 +527,43 @@ final_model = models[best_name]
 final_model.fit(
     features_all,
     targets_all,
+)
+
+# Learn a simple screen-space correction from point-held-out predictions.
+# Using out-of-fold predictions avoids fitting the correction to its labels.
+oof_predictions = np.zeros_like(targets_all, dtype=float)
+
+for train_index, test_index in LeaveOneGroupOut().split(
+    features_all,
+    targets_all,
+    groups_all,
+):
+    fold_model = clone(models[best_name])
+    fold_model.fit(
+        features_all[train_index],
+        targets_all[train_index],
+    )
+    oof_predictions[test_index] = fold_model.predict(
+        features_all[test_index]
+    )
+
+affine_inputs = np.column_stack(
+    [
+        oof_predictions[:, 0],
+        oof_predictions[:, 1],
+        np.ones(len(oof_predictions)),
+    ]
+)
+affine_correction, _, _, _ = np.linalg.lstsq(
+    affine_inputs,
+    targets_all,
+    rcond=None,
+)
+
+corrected_oof = affine_inputs @ affine_correction
+corrected_errors = calculate_error(
+    targets_all,
+    corrected_oof,
 )
 
 joblib.dump(
@@ -563,11 +614,19 @@ metadata = {
     "cv_mean_error_px": scores[best_name]["mean"],
     "cv_median_error_px": scores[best_name]["median"],
     "cv_worst_error_px": scores[best_name]["worst"],
+    "cv_corrected_mean_error_px": float(np.mean(corrected_errors)),
+    "cv_corrected_median_error_px": float(np.median(corrected_errors)),
     "cv_all_models_px": scores,
+    "affine_correction": affine_correction.tolist(),
     "screen_width": SCREEN_WIDTH,
     "screen_height": SCREEN_HEIGHT,
+    "grid_rows": GRID_ROWS,
+    "grid_cols": GRID_COLS,
+    "margin_x": MARGIN_X,
+    "margin_y": MARGIN_Y,
     "n_calibration_points": valid_points,
     "n_samples": int(len(features_all)),
+    "calibration_method": "robust_median_per_point",
 }
 
 with open(

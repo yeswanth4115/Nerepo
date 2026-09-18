@@ -5,7 +5,6 @@ import os
 import random
 import statistics
 import time
-from collections import deque
 from dataclasses import dataclass
 
 import cv2
@@ -18,6 +17,7 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 from gaze_features import FEATURE_VERSION, get_features
+from gaze_kalman import KalmanGazeFilter
 
 # ==========================================================
 # EXPERIMENT CONFIGURATION
@@ -29,8 +29,6 @@ MIN_FIXATION_MS = 400
 TARGET_SIZE = 120
 TRIAL_TIMEOUT_MS = 8000
 INTER_TRIAL_DELAY = 1200
-SMOOTHING_ALPHA = 0.13
-DEAD_ZONE = 4.0
 TARGET_ZONE_TOLERANCE = 0.0
 SHOW_GAZE_CURSOR = True
 SHOW_TARGET_LABEL = False
@@ -39,7 +37,6 @@ USE_HEAD_POSE = False
 OUTPUT_CSV = "gaze_spot_it_results.csv"
 GAZE_X_OFFSET_PX = -8
 GAZE_Y_OFFSET_PX = 0
-RAW_HISTORY_SIZE = 7
 TRACKER_DEADBAND = 2.0
 MAX_FRAME_MOVEMENT = 35
 
@@ -114,14 +111,15 @@ class TargetZone:
 
 
 class GazeSmoother:
-    """Mimics the more stable tracking pattern used in the concentration game."""
+    """Apply offsets and Kalman filtering to model gaze coordinates."""
 
-    def __init__(self, alpha=0.13, dead_zone=4.0):
-        self.alpha = alpha
-        self.dead_zone = dead_zone
-        self.filtered_x = None
-        self.filtered_y = None
-        self.raw_history = deque(maxlen=RAW_HISTORY_SIZE)
+    def __init__(self):
+        self.filter = KalmanGazeFilter(
+            process_noise=800.0,
+            measurement_noise=225.0,
+            dead_zone=TRACKER_DEADBAND,
+            max_movement=MAX_FRAME_MOVEMENT,
+        )
 
     def update(self, raw_x, raw_y):
         if raw_x is None or raw_y is None:
@@ -129,31 +127,10 @@ class GazeSmoother:
 
         raw_x = float(raw_x) + GAZE_X_OFFSET_PX
         raw_y = float(raw_y) + GAZE_Y_OFFSET_PX
-        self.raw_history.append((raw_x, raw_y))
-
-        if self.filtered_x is None or self.filtered_y is None:
-            self.filtered_x, self.filtered_y = raw_x, raw_y
-            return self.filtered_x, self.filtered_y
-
-        filtered_x, filtered_y = np.median(np.array(self.raw_history), axis=0)
-        next_x = self.alpha * filtered_x + (1.0 - self.alpha) * self.filtered_x
-        next_y = self.alpha * filtered_y + (1.0 - self.alpha) * self.filtered_y
-
-        movement = math.hypot(next_x - self.filtered_x, next_y - self.filtered_y)
-        if movement < TRACKER_DEADBAND:
-            next_x, next_y = self.filtered_x, self.filtered_y
-        if movement > MAX_FRAME_MOVEMENT:
-            scale = MAX_FRAME_MOVEMENT / movement
-            next_x = self.filtered_x + (next_x - self.filtered_x) * scale
-            next_y = self.filtered_y + (next_y - self.filtered_y) * scale
-
-        self.filtered_x, self.filtered_y = next_x, next_y
-        return self.filtered_x, self.filtered_y
+        return self.filter.update(raw_x, raw_y)
 
     def reset(self):
-        self.filtered_x = None
-        self.filtered_y = None
-        self.raw_history.clear()
+        self.filter.reset()
 
 
 def ensure_output_file(path):
@@ -407,7 +384,7 @@ def log_summary(results):
 def run_experiment():
     timestamp_ms = 0
     results = []
-    smoother = GazeSmoother(alpha=SMOOTHING_ALPHA, dead_zone=DEAD_ZONE)
+    smoother = GazeSmoother()
 
     output_exists = os.path.exists(OUTPUT_CSV)
     if output_exists:

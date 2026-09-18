@@ -12,6 +12,7 @@ from collections import deque
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from gaze_features import FEATURE_VERSION, get_features
+from gaze_kalman import KalmanGazeFilter
 
 
 # ==========================================================
@@ -141,13 +142,10 @@ target_time = 0.0
 # 9. GAZE FILTERING
 # ==========================================================
 
-raw_history = deque(maxlen=5)
-
-smooth_x = None
-smooth_y = None
-
-# This smoothing is only for displaying/stable gaze.
-DISPLAY_ALPHA = 0.25
+gaze_filter = KalmanGazeFilter(
+    process_noise=800.0,
+    measurement_noise=225.0,
+)
 
 
 # ==========================================================
@@ -597,22 +595,12 @@ while True:
 
 
             # ==============================================
-            # 26. MEDIAN FILTER
+            # 26. KALMAN FILTER
             # ==============================================
 
-            raw_history.append(
-                (
-                    raw_x,
-                    raw_y
-                )
-            )
-
-
-            filtered_x, filtered_y = np.median(
-                np.array(
-                    raw_history
-                ),
-                axis=0
+            filtered_x, filtered_y = gaze_filter.update(
+                raw_x,
+                raw_y,
             )
 
 
@@ -655,41 +643,12 @@ while True:
 
 
             # ==============================================
-            # 28. DISPLAY SMOOTHING
-            # ==============================================
-
-            if smooth_x is None:
-
-                smooth_x = filtered_x
-                smooth_y = filtered_y
-
-            else:
-
-                smooth_x = (
-                    DISPLAY_ALPHA *
-                    filtered_x
-                    +
-                    (1 - DISPLAY_ALPHA) *
-                    smooth_x
-                )
-
-
-                smooth_y = (
-                    DISPLAY_ALPHA *
-                    filtered_y
-                    +
-                    (1 - DISPLAY_ALPHA) *
-                    smooth_y
-                )
-
-
-            # ==============================================
             # 29. SCREEN COORDINATES
             # ==============================================
 
             predicted_x = int(
                 np.clip(
-                    smooth_x,
+                    filtered_x,
                     0,
                     SCREEN_WIDTH - 1
                 )
@@ -698,7 +657,7 @@ while True:
 
             predicted_y = int(
                 np.clip(
-                    smooth_y,
+                    filtered_y,
                     0,
                     SCREEN_HEIGHT - 1
                 )

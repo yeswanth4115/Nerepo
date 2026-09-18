@@ -14,6 +14,7 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 from gaze_features import FEATURE_VERSION, get_features
+from gaze_kalman import KalmanGazeFilter
 
 
 # ==========================================================
@@ -48,6 +49,12 @@ if metadata.get("feature_version") != FEATURE_VERSION:
 
 model = joblib.load("gaze_model.pkl")
 USE_HEAD_POSE = metadata.get("use_head_pose", False)
+affine_correction = np.asarray(
+    metadata.get("affine_correction", []),
+    dtype=float,
+)
+if affine_correction.shape != (3, 2):
+    affine_correction = None
 
 print()
 print("==============================================")
@@ -127,15 +134,13 @@ speed_y = 3
 
 
 # ==========================================================
-# 7. GAZE SMOOTHING
+# 7. GAZE FILTERING
 # ==========================================================
 
-history = deque(maxlen=5)
-
-smooth_x = None
-smooth_y = None
-
-ALPHA = 0.20
+gaze_filter = KalmanGazeFilter(
+    process_noise=800.0,
+    measurement_noise=225.0,
+)
 
 
 # ==========================================================
@@ -307,30 +312,21 @@ try:
                 raw_x = float(prediction[0])
                 raw_y = float(prediction[1])
 
+                if affine_correction is not None:
+                    corrected = np.array(
+                        [raw_x, raw_y, 1.0]
+                    ) @ affine_correction
+                    raw_x = float(corrected[0])
+                    raw_y = float(corrected[1])
+
                 # --------------------------------------------------
-                # MEDIAN FILTER
+                # KALMAN FILTER
                 # --------------------------------------------------
 
-                history.append((raw_x, raw_y))
-
-                median_xy = np.median(
-                    np.asarray(history),
-                    axis=0
+                filtered_x, filtered_y = gaze_filter.update(
+                    raw_x,
+                    raw_y,
                 )
-
-                filtered_x = float(median_xy[0])
-                filtered_y = float(median_xy[1])
-
-                # --------------------------------------------------
-                # EMA FILTER
-                # --------------------------------------------------
-
-                if smooth_x is None or smooth_y is None:
-                    smooth_x = filtered_x
-                    smooth_y = filtered_y
-                else:
-                    smooth_x = ALPHA * filtered_x + (1 - ALPHA) * smooth_x
-                    smooth_y = ALPHA * filtered_y + (1 - ALPHA) * smooth_y
 
                 # --------------------------------------------------
                 # SCREEN COORDINATES
@@ -338,7 +334,7 @@ try:
 
                 gaze_x = int(
                     np.clip(
-                        smooth_x,
+                        filtered_x,
                         0,
                         SCREEN_WIDTH - 1
                     )
@@ -346,7 +342,7 @@ try:
 
                 gaze_y = int(
                     np.clip(
-                        smooth_y,
+                        filtered_y,
                         0,
                         SCREEN_HEIGHT - 1
                     )

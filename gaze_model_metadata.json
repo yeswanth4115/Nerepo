@@ -8,29 +8,55 @@
     ],
     "feature_count": 4,
     "use_head_pose": false,
-    "model_type": "ridge_polynomial",
-    "cv_mean_error_px": 368.592183906184,
-    "cv_median_error_px": 308.08488257552267,
-    "cv_worst_error_px": 1654.1358449140725,
+    "model_type": "ridge_linear",
+    "cv_mean_error_px": 64.26808573953971,
+    "cv_median_error_px": 61.55598292770362,
+    "cv_worst_error_px": 182.23397189936856,
+    "cv_corrected_mean_error_px": 64.3757502722167,
+    "cv_corrected_median_error_px": 58.154504958689515,
     "cv_all_models_px": {
         "ridge_linear": {
-            "mean": 374.9747715436518,
-            "median": 350.65196439407237,
-            "worst": 1258.4968906354156
+            "mean": 64.26808573953971,
+            "median": 61.55598292770362,
+            "worst": 182.23397189936856
         },
         "ridge_polynomial": {
-            "mean": 368.592183906184,
-            "median": 308.08488257552267,
-            "worst": 1654.1358449140725
+            "mean": 70.78925894894202,
+            "median": 64.03349931899308,
+            "worst": 472.97915869191854
         },
         "svr_rbf": {
-            "mean": 395.7000148059725,
-            "median": 340.25803268775536,
-            "worst": 1114.3042266338814
+            "mean": 116.72145219946461,
+            "median": 76.8442909324531,
+            "worst": 686.8079913534549
+        },
+        "kernel_ridge_rbf": {
+            "mean": 274.20124331897,
+            "median": 191.83064796819906,
+            "worst": 1290.3337750919295
         }
     },
+    "affine_correction": [
+        [
+            1.0042777876963853,
+            -0.001992406891957803
+        ],
+        [
+            -0.005459605061742554,
+            1.0004512819572948
+        ],
+        [
+            -0.8346981083730897,
+            1.2578295047677386
+        ]
+    ],
     "screen_width": 1536,
     "screen_height": 864,
-    "n_calibration_points": 25,
-    "n_samples": 1900
+    "grid_rows": 5,
+    "grid_cols": 10,
+    "margin_x": 100,
+    "margin_y": 80,
+    "n_calibration_points": 50,
+    "n_samples": 50,
+    "calibration_method": "robust_median_per_point"
 }

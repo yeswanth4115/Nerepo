@@ -30,6 +30,12 @@ if metadata["feature_version"] != FEATURE_VERSION:
 
 model = joblib.load("gaze_model.pkl")
 USE_HEAD_POSE = metadata["use_head_pose"]
+affine_correction = np.asarray(
+    metadata.get("affine_correction", []),
+    dtype=float,
+)
+if affine_correction.shape != (3, 2):
+    affine_correction = None
 
 print(f"Loaded model: {metadata['model_type']}  "
       f"(calibration CV error: {metadata['cv_mean_error_px']:.1f}px)")
@@ -86,14 +92,16 @@ def extract(result):
 # ==========================================================
 # Offset from the calibration grid so these points were never seen
 # during training — this is what makes the error number honest.
-# A 4x4 grid at the midpoints between where a 5x5 calibration grid
-# would have landed.
+# A midpoint grid between the calibration targets. The geometry is
+# loaded from metadata so validation follows the latest calibration.
 
-margin_x = int(SCREEN_WIDTH * 0.08)
-margin_y = int(SCREEN_HEIGHT * 0.08)
+grid_rows = metadata.get("grid_rows", 5)
+grid_cols = metadata.get("grid_cols", 5)
+margin_x = metadata.get("margin_x", int(SCREEN_WIDTH * 0.08))
+margin_y = metadata.get("margin_y", int(SCREEN_HEIGHT * 0.08))
 
-cal_xs = np.linspace(margin_x, SCREEN_WIDTH - margin_x, 5)
-cal_ys = np.linspace(margin_y, SCREEN_HEIGHT - margin_y, 5)
+cal_xs = np.linspace(margin_x, SCREEN_WIDTH - margin_x, grid_cols)
+cal_ys = np.linspace(margin_y, SCREEN_HEIGHT - margin_y, grid_rows)
 
 test_xs = (cal_xs[:-1] + cal_xs[1:]) / 2   # midpoints -> interior, unseen
 test_ys = (cal_ys[:-1] + cal_ys[1:]) / 2
@@ -167,6 +175,10 @@ for point_idx, (target_x, target_y) in enumerate(targets):
         features = extract(result)
         if features is not None:
             pred = model.predict(np.array(features).reshape(1, -1))[0]
+            if affine_correction is not None:
+                pred = np.array(
+                    [pred[0], pred[1], 1.0]
+                ) @ affine_correction
             px = float(np.clip(pred[0], 0, SCREEN_WIDTH - 1))
             py = float(np.clip(pred[1], 0, SCREEN_HEIGHT - 1))
             predictions.append((px, py))

@@ -1,7 +1,5 @@
 import json
-import math
 import time
-from collections import deque
 
 import cv2
 import joblib
@@ -16,6 +14,7 @@ from gaze_features import (
     FEATURE_VERSION,
     get_features,
 )
+from gaze_kalman import KalmanGazeFilter
 
 
 MODEL_FILE = "gaze_model.pkl"
@@ -24,10 +23,10 @@ MODEL_PATH = "models/face_landmarker.task"
 
 WINDOW_NAME = "Gaze Estimation"
 
-HISTORY_SIZE = 5
-SMOOTHING_ALPHA = 0.25
-DEADBAND = 1.0
-MAX_MOVEMENT = 80.0
+KALMAN_PROCESS_NOISE = 800.0
+KALMAN_MEASUREMENT_NOISE = 225.0
+KALMAN_DEADBAND = 1.0
+KALMAN_MAX_MOVEMENT = 80.0
 
 
 with open(METADATA_FILE, "r") as file:
@@ -44,6 +43,12 @@ use_head_pose = metadata.get(
     "use_head_pose",
     False,
 )
+affine_correction = np.asarray(
+    metadata.get("affine_correction", []),
+    dtype=float,
+)
+if affine_correction.shape != (3, 2):
+    affine_correction = None
 
 
 root = tk.Tk()
@@ -97,12 +102,12 @@ cv2.setWindowProperty(
 )
 
 
-history = deque(
-    maxlen=HISTORY_SIZE
+gaze_filter = KalmanGazeFilter(
+    process_noise=KALMAN_PROCESS_NOISE,
+    measurement_noise=KALMAN_MEASUREMENT_NOISE,
+    dead_zone=KALMAN_DEADBAND,
+    max_movement=KALMAN_MAX_MOVEMENT,
 )
-
-smooth_x = None
-smooth_y = None
 
 session_start_time = time.perf_counter()
 last_timestamp_ms = -1
@@ -126,67 +131,11 @@ def get_next_timestamp():
 
 
 def reset_tracking():
-    global smooth_x
-    global smooth_y
-
-    history.clear()
-    smooth_x = None
-    smooth_y = None
+    gaze_filter.reset()
 
 
 def update_gaze(raw_x, raw_y):
-    global smooth_x
-    global smooth_y
-
-    history.append(
-        (float(raw_x), float(raw_y))
-    )
-
-    median_x, median_y = np.median(
-        np.asarray(history),
-        axis=0,
-    )
-
-    if smooth_x is None or smooth_y is None:
-        smooth_x = float(median_x)
-        smooth_y = float(median_y)
-
-        return smooth_x, smooth_y
-
-    next_x = (
-        SMOOTHING_ALPHA * median_x
-        + (1.0 - SMOOTHING_ALPHA) * smooth_x
-    )
-
-    next_y = (
-        SMOOTHING_ALPHA * median_y
-        + (1.0 - SMOOTHING_ALPHA) * smooth_y
-    )
-
-    movement = math.hypot(
-        next_x - smooth_x,
-        next_y - smooth_y,
-    )
-
-    if movement < DEADBAND:
-        next_x = smooth_x
-        next_y = smooth_y
-
-    elif movement > MAX_MOVEMENT:
-        scale = MAX_MOVEMENT / movement
-
-        next_x = smooth_x + (
-            next_x - smooth_x
-        ) * scale
-
-        next_y = smooth_y + (
-            next_y - smooth_y
-        ) * scale
-
-    smooth_x = next_x
-    smooth_y = next_y
-
-    return smooth_x, smooth_y
+    return gaze_filter.update(raw_x, raw_y)
 
 
 print()
@@ -274,6 +223,13 @@ try:
 
                 raw_x = float(prediction[0])
                 raw_y = float(prediction[1])
+
+                if affine_correction is not None:
+                    corrected = np.array(
+                        [raw_x, raw_y, 1.0]
+                    ) @ affine_correction
+                    raw_x = float(corrected[0])
+                    raw_y = float(corrected[1])
 
                 smooth_x_value, smooth_y_value = (
                     update_gaze(raw_x, raw_y)
