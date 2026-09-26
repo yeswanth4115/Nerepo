@@ -42,10 +42,15 @@ COLLECT_TIME = 3.0
 MIN_SAMPLES_PER_POINT = 20
 SAMPLES_PER_POINT = 45
 MAD_THRESHOLD = 3.5
+MAX_NORMALIZED_OFFSET = 2.0
+MAX_HEAD_POSE_RAD = 1.5
 
 USE_HEAD_POSE = False
 MODEL_PATH = "models/face_landmarker.task"
 WINDOW_NAME = "Gaze Calibration"
+
+CALIBRATION_PARTICIPANT_ID = "child_session_default"
+CALIBRATION_SESSION_ID = f"calibration_{int(time.time())}"
 
 
 root = tk.Tk()
@@ -171,6 +176,19 @@ def calculate_error(actual, predicted):
             axis=1,
         )
     )
+
+
+def is_valid_feature_vector(values):
+    feature_vector = np.asarray(values, dtype=float)
+    if feature_vector.ndim != 1 or feature_vector.size not in (4, 7):
+        return False
+    if not np.all(np.isfinite(feature_vector)):
+        return False
+    if np.max(np.abs(feature_vector[:4])) > MAX_NORMALIZED_OFFSET:
+        return False
+    if feature_vector.size > 4 and np.max(np.abs(feature_vector[4:])) > MAX_HEAD_POSE_RAD:
+        return False
+    return True
 
 
 def evaluate_model(model, features, targets, groups):
@@ -370,7 +388,7 @@ try:
                         dtype=float,
                     )
 
-                    if np.all(np.isfinite(values)):
+                    if is_valid_feature_vector(values):
                         point_samples.append(values)
 
             draw_target(
@@ -603,6 +621,16 @@ with open(
         )
 
 
+mean_error_px = float(scores[best_name]["mean"])
+median_error_px = float(scores[best_name]["median"])
+quality_label = (
+    "GOOD"
+    if valid_points >= 20 and median_error_px <= 150
+    else "MODERATE"
+    if valid_points >= 12 and median_error_px <= 250
+    else "LOW"
+)
+
 metadata = {
     "feature_version": FEATURE_VERSION,
     "feature_names": feature_names(USE_HEAD_POSE),
@@ -610,9 +638,13 @@ metadata = {
         features_all.shape[1]
     ),
     "use_head_pose": USE_HEAD_POSE,
+    "participant_id": CALIBRATION_PARTICIPANT_ID,
+    "session_id": CALIBRATION_SESSION_ID,
+    "calibration_quality": quality_label,
+    "calibration_quality_threshold_px": 150.0,
     "model_type": best_name,
-    "cv_mean_error_px": scores[best_name]["mean"],
-    "cv_median_error_px": scores[best_name]["median"],
+    "cv_mean_error_px": mean_error_px,
+    "cv_median_error_px": median_error_px,
     "cv_worst_error_px": scores[best_name]["worst"],
     "cv_corrected_mean_error_px": float(np.mean(corrected_errors)),
     "cv_corrected_median_error_px": float(np.median(corrected_errors)),
@@ -627,6 +659,7 @@ metadata = {
     "n_calibration_points": valid_points,
     "n_samples": int(len(features_all)),
     "calibration_method": "robust_median_per_point",
+    "quality_notes": "Stable calibration samples were filtered to reject invalid normalized eye geometry and head-pose outliers.",
 }
 
 with open(

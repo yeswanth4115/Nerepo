@@ -12,6 +12,8 @@ from mediapipe.tasks.python import vision
 
 from gaze_features import (
     FEATURE_VERSION,
+    estimate_gaze_confidence,
+    extract_eye_metrics,
     get_features,
 )
 from gaze_kalman import KalmanGazeFilter
@@ -109,6 +111,8 @@ gaze_filter = KalmanGazeFilter(
     max_movement=KALMAN_MAX_MOVEMENT,
 )
 
+MIN_GAZE_CONFIDENCE = 0.35
+
 session_start_time = time.perf_counter()
 last_timestamp_ms = -1
 last_valid_time = time.perf_counter()
@@ -194,6 +198,8 @@ try:
         gaze_x = None
         gaze_y = None
         valid_prediction = False
+        gaze_confidence = 0.0
+        gaze_state = "UNCERTAIN"
 
         if result.face_landmarks:
             matrix = None
@@ -210,49 +216,69 @@ try:
                 result.face_landmarks[0],
                 matrix,
             )
+            metrics = extract_eye_metrics(
+                result.face_landmarks[0],
+                matrix,
+            )
 
-            if features is not None:
-                feature_array = np.asarray(
-                    features,
-                    dtype=float,
-                ).reshape(1, -1)
+            if features is not None and metrics is not None:
+                gaze_confidence = estimate_gaze_confidence(metrics)
 
-                prediction = model.predict(
-                    feature_array
-                )[0]
+                if gaze_confidence >= MIN_GAZE_CONFIDENCE:
+                    feature_array = np.asarray(
+                        features,
+                        dtype=float,
+                    ).reshape(1, -1)
 
-                raw_x = float(prediction[0])
-                raw_y = float(prediction[1])
+                    prediction = model.predict(
+                        feature_array
+                    )[0]
 
-                if affine_correction is not None:
-                    corrected = np.array(
-                        [raw_x, raw_y, 1.0]
-                    ) @ affine_correction
-                    raw_x = float(corrected[0])
-                    raw_y = float(corrected[1])
+                    raw_x = float(prediction[0])
+                    raw_y = float(prediction[1])
 
-                smooth_x_value, smooth_y_value = (
-                    update_gaze(raw_x, raw_y)
-                )
+                    if affine_correction is not None:
+                        corrected = np.array(
+                            [raw_x, raw_y, 1.0]
+                        ) @ affine_correction
+                        raw_x = float(corrected[0])
+                        raw_y = float(corrected[1])
 
-                gaze_x = int(
-                    np.clip(
-                        smooth_x_value,
-                        0,
-                        SCREEN_WIDTH - 1,
+                    smooth_x_value, smooth_y_value = (
+                        update_gaze(raw_x, raw_y)
                     )
-                )
 
-                gaze_y = int(
-                    np.clip(
-                        smooth_y_value,
-                        0,
-                        SCREEN_HEIGHT - 1,
+                    gaze_x = int(
+                        np.clip(
+                            smooth_x_value,
+                            0,
+                            SCREEN_WIDTH - 1,
+                        )
                     )
-                )
 
-                valid_prediction = True
-                last_valid_time = time.perf_counter()
+                    gaze_y = int(
+                        np.clip(
+                            smooth_y_value,
+                            0,
+                            SCREEN_HEIGHT - 1,
+                        )
+                    )
+
+                    valid_prediction = True
+                    last_valid_time = time.perf_counter()
+
+                    if abs(gaze_x - SCREEN_WIDTH / 2) < 0.1 * SCREEN_WIDTH and abs(gaze_y - SCREEN_HEIGHT / 2) < 0.1 * SCREEN_HEIGHT:
+                        gaze_state = "CENTER"
+                    elif gaze_x < SCREEN_WIDTH * 0.45:
+                        gaze_state = "LEFT"
+                    elif gaze_x > SCREEN_WIDTH * 0.55:
+                        gaze_state = "RIGHT"
+                    elif gaze_y < SCREEN_HEIGHT * 0.45:
+                        gaze_state = "UP"
+                    elif gaze_y > SCREEN_HEIGHT * 0.55:
+                        gaze_state = "DOWN"
+                    else:
+                        gaze_state = "CENTER"
 
         if not valid_prediction:
             if (
@@ -267,6 +293,17 @@ try:
                 (30, 55),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1.0,
+                (0, 0, 255),
+                2,
+                cv2.LINE_AA,
+            )
+
+            cv2.putText(
+                canvas,
+                "STATE: UNCERTAIN",
+                (30, 95),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
                 (0, 0, 255),
                 2,
                 cv2.LINE_AA,
@@ -299,6 +336,27 @@ try:
                 2,
                 cv2.LINE_AA,
             )
+            cv2.putText(
+                canvas,
+                f"STATE: {gaze_state}",
+                (30, 95),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (255, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+
+        cv2.putText(
+            canvas,
+            f"CONFIDENCE: {gaze_confidence:.2f}",
+            (30, SCREEN_HEIGHT - 80),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
 
         cv2.putText(
             canvas,

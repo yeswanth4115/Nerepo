@@ -99,6 +99,8 @@ class KalmanGazeFilter:
         if movement < self.dead_zone:
             next_state[0] = previous_x
             next_state[1] = previous_y
+            next_state[2] = 0.0
+            next_state[3] = 0.0
 
         elif self.max_movement is not None and movement > self.max_movement:
             scale = self.max_movement / movement
